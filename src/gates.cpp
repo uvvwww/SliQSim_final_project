@@ -820,6 +820,42 @@ void Simulator::Phase_shift_dagger(int phase, int iqubit)
     nodecount();
 }
 
+// Controlled-U1 gate: applies U1(phase) to targ if control is 1
+// phase: integer phase (e.g., 2 for S, 4 for T, 8 for pi/8, etc.)
+// control: control qubit index
+// targ: target qubit index
+void Simulator::ControlledU1(int control, int targ, int phase)
+{
+    std::vector<int> cont(1);
+    std::vector<int> ncont(0);
+    cont[0] = control;
+    Phase_shift(phase * 2, control);
+    Phase_shift(phase * 2, targ);
+    Toffoli(targ, cont, ncont);
+    Phase_shift_dagger(-phase * 2, targ);
+    Toffoli(targ, cont, ncont);
+    cont.clear();
+    ncont.clear();
+    gatecount++;
+    nodecount();
+}
+
+void Simulator::ControlledU1_dagger(int control, int targ, int phase)
+{
+    std::vector<int> cont(1);
+    std::vector<int> ncont(0);
+    cont[0] = control;
+    Phase_shift_dagger(-phase * 2, control);
+    Phase_shift_dagger(-phase * 2, targ);
+    Toffoli(targ, cont, ncont);
+    Phase_shift(phase * 2, targ);
+    Toffoli(targ, cont, ncont);
+    cont.clear();
+    ncont.clear();
+    gatecount++;
+    nodecount();
+}
+
 void Simulator::PauliX(int iqubit)
 {
     assert((iqubit >= 0) & (iqubit < n));

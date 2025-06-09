@@ -50,11 +50,11 @@ class Simulator
 public:
     // constructor and destructor
     Simulator(int type, int nshots, int seed, int bitSize, bool reorder, bool isQuery, bool alloc) :
-        n(0), r(bitSize), w(4), k(0), inc(3), shift(0), error(0),
+        n(0), r(bitSize), w(8), k(0), inc(3), shift(0), error(0),
         normalize_factor(1), gatecount(0), NodeCount(0), isMeasure(0), isQuery(isQuery), shots(nshots), isReorder(reorder), isAlloc(alloc)
         , sim_type(type), statevector("null"), gen(std::default_random_engine(seed)) {}
     Simulator(int nshots, int seed, int bitSize, bool reorder, bool isQuery, bool alloc) :
-        n(0), r(bitSize), w(4), k(0), inc(3), shift(0), error(0),
+        n(0), r(bitSize), w(8), k(0), inc(3), shift(0), error(0),
         normalize_factor(1), gatecount(0), NodeCount(0), isMeasure(0), isQuery(isQuery), shots(nshots), isReorder(reorder), isAlloc(alloc)
         , sim_type(0), statevector("null"), gen(std::default_random_engine(seed)) {}
     ~Simulator()  {
@@ -71,6 +71,8 @@ public:
     void ry_pi_2(int iqubit);
     void Phase_shift(int phase, int iqubit); // phase can only be 2 to the power of an integer
     void Phase_shift_dagger(int phase, int iqubit);
+    void ControlledU1(int control, int targ, int phase);
+    void ControlledU1_dagger(int control, int targ, int phase);
     void PauliX(int iqubit);
     void PauliY(int iqubit);
     void PauliZ(std::vector<int> iqubit); // Z or CZ

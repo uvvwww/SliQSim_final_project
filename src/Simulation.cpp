@@ -221,6 +221,50 @@ void Simulator::sim_qasm_file(std::string qasm)
                     cont.clear();
                     ncont.clear();
                 }
+                else if (inStr == "cu1(pi/2)" || inStr == "cp(pi/2)")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    ControlledU1(cont, targ, 2);
+                }
+                else if (inStr == "cu1(-pi/2)" || inStr == "cp(-pi/2)")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    ControlledU1_dagger(cont, targ, 2);
+                }
+                else if (inStr == "cu1(pi/4)" || inStr == "cp(pi/4)")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    ControlledU1(cont, targ, 4);
+                }
+                else if (inStr == "cu1(-pi/4)" || inStr == "cp(-pi/4)")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    ControlledU1_dagger(cont, targ, 4);
+                }
                 else
                 {
                     std::cerr << std::endl
