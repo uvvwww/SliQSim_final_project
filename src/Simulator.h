@@ -73,6 +73,7 @@ public:
     void Phase_shift_dagger(int phase, int iqubit);
     void ControlledU1(int control, int targ, int phase);
     void ControlledU1_dagger(int control, int targ, int phase);
+    void MAJControlledX(int c1, int c2, int c3, int targ);
     void PauliX(int iqubit);
     void PauliY(int iqubit);
     void PauliZ(std::vector<int> iqubit); // Z or CZ

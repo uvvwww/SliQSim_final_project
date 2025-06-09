@@ -265,6 +265,23 @@ void Simulator::sim_qasm_file(std::string qasm)
                     targ = stoi(inStr);
                     ControlledU1_dagger(cont, targ, 4);
                 }
+                else if (inStr == "maj")
+                {
+                    int c1, c2, c3, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    c1 = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    c2 = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    c3 = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    MAJControlledX(c1, c2, c3, targ);
+                }
                 else
                 {
                     std::cerr << std::endl

@@ -856,6 +856,29 @@ void Simulator::ControlledU1_dagger(int control, int targ, int phase)
     nodecount();
 }
 
+void Simulator::MAJControlledX(int c1, int c2, int c3, int targ)
+{
+    assert((c1 >= 0) & (c1 < n));
+    assert((c2 >= 0) & (c2 < n));
+    assert((c3 >= 0) & (c3 < n));
+    assert((targ >= 0) & (targ < n));
+
+    std::vector<int> cont(2);
+    std::vector<int> ncont(0);
+    cont[0] = c1;
+    cont[1] = c2;
+    Toffoli(targ, cont, ncont);
+    cont[0] = c1;
+    cont[1] = c3;
+    Toffoli(targ, cont, ncont);
+    cont[0] = c2;
+    cont[1] = c3;
+    Toffoli(targ, cont, ncont);
+
+    gatecount++;
+    nodecount();
+}
+
 void Simulator::PauliX(int iqubit)
 {
     assert((iqubit >= 0) & (iqubit < n));
