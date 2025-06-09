@@ -297,6 +297,7 @@ void Simulator::sim_qasm(std::string qasm)
     else if (sim_type == 2)
     {
         create_bigBDD();
+        getAmplitude();
     }
     else
     {

@@ -21,3 +21,13 @@ hwgt q[0] q[2] q[1] 2;
 
 amp 1001001010;
 dist q[0] q[1] q[2];
+
+top_k 3;
+maxp;
+bottom_k 3;
+minp;
+prange 0.1 1;
+phist;
+entropy;
+medianp;
+most_common_bitpattern 10;
