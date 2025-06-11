@@ -230,7 +230,7 @@ void Simulator::sim_qasm_file(std::string qasm)
                     getline(inStr_ss, inStr, '[');
                     getline(inStr_ss, inStr, ']');
                     targ = stoi(inStr);
-                    ControlledU1(cont, targ, 2);
+                    Controlled_Phase_shift(cont, targ, 2);
                 }
                 else if (inStr == "cu1(-pi/2)" || inStr == "cp(-pi/2)")
                 {
@@ -241,9 +241,9 @@ void Simulator::sim_qasm_file(std::string qasm)
                     getline(inStr_ss, inStr, '[');
                     getline(inStr_ss, inStr, ']');
                     targ = stoi(inStr);
-                    ControlledU1_dagger(cont, targ, 2);
+                    Controlled_Phase_shift_dagger(cont, targ, 2);
                 }
-                else if (inStr == "cu1(pi/4)" || inStr == "cp(pi/4)")
+                else if (inStr == "cu1(pi/4)" || inStr == "cp(pi/4)" || inStr == "ct")
                 {
                     int cont, targ;
                     getline(inStr_ss, inStr, '[');
@@ -252,7 +252,7 @@ void Simulator::sim_qasm_file(std::string qasm)
                     getline(inStr_ss, inStr, '[');
                     getline(inStr_ss, inStr, ']');
                     targ = stoi(inStr);
-                    ControlledU1(cont, targ, 4);
+                    Controlled_Phase_shift(cont, targ, 4);
                 }
                 else if (inStr == "cu1(-pi/4)" || inStr == "cp(-pi/4)")
                 {
@@ -263,7 +263,7 @@ void Simulator::sim_qasm_file(std::string qasm)
                     getline(inStr_ss, inStr, '[');
                     getline(inStr_ss, inStr, ']');
                     targ = stoi(inStr);
-                    ControlledU1_dagger(cont, targ, 4);
+                    Controlled_Phase_shift_dagger(cont, targ, 4);
                 }
                 else if (inStr == "maj")
                 {

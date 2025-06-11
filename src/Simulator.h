@@ -71,6 +71,8 @@ public:
     void ry_pi_2(int iqubit);
     void Phase_shift(int phase, int iqubit); // phase can only be 2 to the power of an integer
     void Phase_shift_dagger(int phase, int iqubit);
+    void Controlled_Phase_shift(int control, int targ, int phase); // phase can only be 2 to the power of an integer
+    void Controlled_Phase_shift_dagger(int control, int targ, int phase);
     void ControlledU1(int control, int targ, int phase);
     void ControlledU1_dagger(int control, int targ, int phase);
     void MAJControlledX(int c1, int c2, int c3, int targ);

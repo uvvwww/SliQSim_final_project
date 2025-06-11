@@ -820,6 +820,336 @@ void Simulator::Phase_shift_dagger(int phase, int iqubit)
     nodecount();
 }
 
+void Simulator::Controlled_Phase_shift(int control, int targ, int phase)
+{
+    assert((control >= 0) & (control < n));
+    assert((targ >= 0) & (targ < n));
+    assert(control != targ);  // Control and target should be different qubits
+
+    int nshift = w / phase;
+    int overflow_done = 0;
+
+    DdNode *g, *c, *tmp, *term1, *term2, *control_cond;
+
+    /* copy the current state */
+    DdNode **copy[w];
+    for (int i = 0; i < w; i++)
+        copy[i] = new DdNode *[r];
+    for (int i = 0; i < w; i++)
+    {
+        for (int j = 0; j < r; j++)
+        {
+            copy[i][j] = Cudd_ReadOne(manager);
+            Cudd_Ref(copy[i][j]);
+            tmp = Cudd_bddAnd(manager, copy[i][j], All_Bdd[i][j]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, copy[i][j]);
+            copy[i][j] = tmp;
+        }
+    }
+
+    // Create control condition BDD
+    control_cond = Cudd_bddIthVar(manager, control);
+    Cudd_Ref(control_cond);
+
+    for (int i = 0; i < w; i++)
+    {
+        // init c
+        if (i >= w - nshift)
+        {
+            // Only use the target as carry when control is 1
+            c = Cudd_bddAnd(manager, Cudd_bddIthVar(manager, targ), control_cond);
+            Cudd_Ref(c);
+        }
+
+        for (int j = 0; j < r; j++)
+        {
+            if (i >= w - nshift)
+            {
+                // Term for when target is 0
+                term1 = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(Cudd_bddIthVar(manager, targ)));
+                Cudd_Ref(term1);
+                
+                // Term for when control is 0 - no change
+                DdNode *unchanged = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(control_cond));
+                Cudd_Ref(unchanged);
+                
+                // Term for when control is 1 and target is 1 - apply phase
+                term2 = Cudd_bddAnd(manager, Cudd_Not(copy[i - (w - nshift)][j]), Cudd_bddIthVar(manager, targ));
+                Cudd_Ref(term2);
+                DdNode *phase_applied = Cudd_bddAnd(manager, term2, control_cond);
+                Cudd_Ref(phase_applied);
+                Cudd_RecursiveDeref(manager, term2);
+                
+                // Combine cases
+                g = Cudd_bddOr(manager, term1, phase_applied);
+                Cudd_Ref(g);
+                Cudd_RecursiveDeref(manager, term1);
+                Cudd_RecursiveDeref(manager, phase_applied);
+                
+                // Combine with unchanged case when control is 0
+                DdNode *result = Cudd_bddOr(manager, g, unchanged);
+                Cudd_Ref(result);
+                Cudd_RecursiveDeref(manager, g);
+                Cudd_RecursiveDeref(manager, unchanged);
+                g = result;
+
+                // detect overflow
+                if ((j == r - 1) && !overflow_done)
+                    if (overflow2(g, c))
+                    {   
+                        if (isAlloc)
+                        {
+                            r += inc;
+                            alloc_BDD(All_Bdd, true);
+                            alloc_BDD(copy, true);
+                        }
+                        else
+                        {
+                            j -= 1;
+                            ++shift;
+                            dropLSB(All_Bdd);
+                            dropLSB(copy);
+                        }
+                        overflow_done = 1;
+                    }
+
+                /* plus */
+                Cudd_RecursiveDeref(manager, All_Bdd[i][j]);
+                if (Cudd_IsConstant(c))
+                    All_Bdd[i][j] = g;
+                else
+                {
+                    /* sum */
+                    All_Bdd[i][j] = Cudd_bddXor(manager, g, c);
+                    Cudd_Ref(All_Bdd[i][j]);
+                    /*carry*/
+                    if (j == r - 1)
+                    {
+                        Cudd_RecursiveDeref(manager, g);
+                        Cudd_RecursiveDeref(manager, c);
+                    }
+                    else
+                    {
+                        tmp = Cudd_bddAnd(manager, g, c);
+                        Cudd_Ref(tmp);
+                        Cudd_RecursiveDeref(manager, g);
+                        Cudd_RecursiveDeref(manager, c);
+                        c = tmp;
+                    }
+                }
+            }
+            else
+            {
+                // Keep original state when control is 0
+                DdNode *unchanged = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(control_cond));
+                Cudd_Ref(unchanged);
+                
+                // Term for when target is 0
+                term1 = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(Cudd_bddIthVar(manager, targ)));
+                Cudd_Ref(term1);
+                
+                // Term for when control is 1 and target is 1
+                term2 = Cudd_bddAnd(manager, copy[i + nshift][j], Cudd_bddIthVar(manager, targ));
+                Cudd_Ref(term2);
+                DdNode *phase_applied = Cudd_bddAnd(manager, term2, control_cond);
+                Cudd_Ref(phase_applied);
+                Cudd_RecursiveDeref(manager, term2);
+                
+                // Combine controlling cases
+                DdNode *controlled = Cudd_bddOr(manager, term1, phase_applied);
+                Cudd_Ref(controlled);
+                Cudd_RecursiveDeref(manager, term1);
+                Cudd_RecursiveDeref(manager, phase_applied);
+                
+                // Combine with unchanged case
+                Cudd_RecursiveDeref(manager, All_Bdd[i][j]);
+                All_Bdd[i][j] = Cudd_bddOr(manager, controlled, unchanged);
+                Cudd_Ref(All_Bdd[i][j]);
+                Cudd_RecursiveDeref(manager, controlled);
+                Cudd_RecursiveDeref(manager, unchanged);
+            }
+        }
+    }
+
+    Cudd_RecursiveDeref(manager, control_cond);
+
+    // Clean up
+    for (int i = 0; i < w; i++)
+    {
+        for (int j = 0; j < r; j++)
+            Cudd_RecursiveDeref(manager, copy[i][j]);
+        delete[] copy[i];
+    }
+    gatecount++;
+    nodecount();
+}
+
+void Simulator::Controlled_Phase_shift_dagger(int control, int targ, int phase)
+{
+    assert((control >= 0) & (control < n));
+    assert((targ >= 0) & (targ < n));
+    assert(control != targ);  // Control and target should be different qubits
+
+    int nshift = w / phase;
+    int overflow_done = 0;
+
+    DdNode *g, *c, *tmp, *term1, *term2, *control_cond;
+
+    /* copy the current state */
+    DdNode **copy[w];
+    for (int i = 0; i < w; i++)
+        copy[i] = new DdNode *[r];
+    for (int i = 0; i < w; i++)
+    {
+        for (int j = 0; j < r; j++)
+        {
+            copy[i][j] = Cudd_ReadOne(manager);
+            Cudd_Ref(copy[i][j]);
+            tmp = Cudd_bddAnd(manager, copy[i][j], All_Bdd[i][j]);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, copy[i][j]);
+            copy[i][j] = tmp;
+        }
+    }
+
+    // Create control condition BDD
+    control_cond = Cudd_bddIthVar(manager, control);
+    Cudd_Ref(control_cond);
+
+    for (int i = 0; i < w; i++)
+    {
+        // init c
+        if (i < nshift)
+        {
+            // Only use the target as carry when control is 1
+            c = Cudd_bddAnd(manager, Cudd_bddIthVar(manager, targ), control_cond);
+            Cudd_Ref(c);
+        }
+
+        for (int j = 0; j < r; j++)
+        {
+            if (i < nshift)
+            {
+                // Term for when target is 0
+                term1 = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(Cudd_bddIthVar(manager, targ)));
+                Cudd_Ref(term1);
+                
+                // Term for when control is 0 - no change
+                DdNode *unchanged = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(control_cond));
+                Cudd_Ref(unchanged);
+                
+                // Term for when control is 1 and target is 1 - apply inverse phase
+                term2 = Cudd_bddAnd(manager, Cudd_Not(copy[i + (w - nshift)][j]), Cudd_bddIthVar(manager, targ));
+                Cudd_Ref(term2);
+                DdNode *phase_applied = Cudd_bddAnd(manager, term2, control_cond);
+                Cudd_Ref(phase_applied);
+                Cudd_RecursiveDeref(manager, term2);
+                
+                // Combine cases
+                g = Cudd_bddOr(manager, term1, phase_applied);
+                Cudd_Ref(g);
+                Cudd_RecursiveDeref(manager, term1);
+                Cudd_RecursiveDeref(manager, phase_applied);
+                
+                // Combine with unchanged case when control is 0
+                DdNode *result = Cudd_bddOr(manager, g, unchanged);
+                Cudd_Ref(result);
+                Cudd_RecursiveDeref(manager, g);
+                Cudd_RecursiveDeref(manager, unchanged);
+                g = result;
+
+                // detect overflow
+                if ((j == r - 1) && !overflow_done)
+                    if (overflow2(g, c))
+                    {   
+                        if (isAlloc)
+                        {
+                            r += inc;
+                            alloc_BDD(All_Bdd, true);
+                            alloc_BDD(copy, true);
+                        }
+                        else
+                        {
+                            j -= 1;
+                            ++shift;
+                            dropLSB(All_Bdd);
+                            dropLSB(copy);
+                        }
+                        overflow_done = 1;
+                    }
+
+                /* plus */
+                Cudd_RecursiveDeref(manager, All_Bdd[i][j]);
+                if (Cudd_IsConstant(c))
+                    All_Bdd[i][j] = g;
+                else
+                {
+                    /* sum */
+                    All_Bdd[i][j] = Cudd_bddXor(manager, g, c);
+                    Cudd_Ref(All_Bdd[i][j]);
+                    /*carry*/
+                    if (j == r - 1)
+                    {
+                        Cudd_RecursiveDeref(manager, g);
+                        Cudd_RecursiveDeref(manager, c);
+                    }
+                    else
+                    {
+                        tmp = Cudd_bddAnd(manager, g, c);
+                        Cudd_Ref(tmp);
+                        Cudd_RecursiveDeref(manager, g);
+                        Cudd_RecursiveDeref(manager, c);
+                        c = tmp;
+                    }
+                }
+            }
+            else
+            {
+                // Keep original state when control is 0
+                DdNode *unchanged = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(control_cond));
+                Cudd_Ref(unchanged);
+                
+                // Term for when target is 0
+                term1 = Cudd_bddAnd(manager, copy[i][j], Cudd_Not(Cudd_bddIthVar(manager, targ)));
+                Cudd_Ref(term1);
+                
+                // Term for when control is 1 and target is 1
+                term2 = Cudd_bddAnd(manager, copy[i - nshift][j], Cudd_bddIthVar(manager, targ));
+                Cudd_Ref(term2);
+                DdNode *phase_applied = Cudd_bddAnd(manager, term2, control_cond);
+                Cudd_Ref(phase_applied);
+                Cudd_RecursiveDeref(manager, term2);
+                
+                // Combine controlling cases
+                DdNode *controlled = Cudd_bddOr(manager, term1, phase_applied);
+                Cudd_Ref(controlled);
+                Cudd_RecursiveDeref(manager, term1);
+                Cudd_RecursiveDeref(manager, phase_applied);
+                
+                // Combine with unchanged case
+                Cudd_RecursiveDeref(manager, All_Bdd[i][j]);
+                All_Bdd[i][j] = Cudd_bddOr(manager, controlled, unchanged);
+                Cudd_Ref(All_Bdd[i][j]);
+                Cudd_RecursiveDeref(manager, controlled);
+                Cudd_RecursiveDeref(manager, unchanged);
+            }
+        }
+    }
+
+    Cudd_RecursiveDeref(manager, control_cond);
+
+    // Clean up
+    for (int i = 0; i < w; i++)
+    {
+        for (int j = 0; j < r; j++)
+            Cudd_RecursiveDeref(manager, copy[i][j]);
+        delete[] copy[i];
+    }
+    gatecount++;
+    nodecount();
+}
+
 // Controlled-U1 gate: applies U1(phase) to targ if control is 1
 // phase: integer phase (e.g., 2 for S, 4 for T, 8 for pi/8, etc.)
 // control: control qubit index
