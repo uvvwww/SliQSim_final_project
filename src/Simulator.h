@@ -52,6 +52,7 @@
 #define KW_PHIST      "phist"
 #define KW_ENTROPY    "entropy"
 #define KW_MOST_COMMON_BITPATTERN "most_common_bitpattern"
+#define KW_DIST_MAX   "dist_max"
 
 #define PI 3.14159265358979323846264338327950288419716939937510582097494459230781640628620899
 
