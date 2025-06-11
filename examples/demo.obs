@@ -13,8 +13,7 @@ weightedsum
 endweightedsum
 between 0.5 0.8;
 hwgt q[0] q[2] q[1] 2;
-amp 0100111101;
-amp 0001010101;
+amp 1001001010;
 dist q[0] q[1] q[2];
 dist_max q[0] q[1] q[2] q[3] q[4] q[5] q[6] q[7] q[8] q[9];
 
