@@ -694,6 +694,130 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         property.push_back(std::make_tuple(line, result));
         return 0;
     }
+    else if (op_name == KW_DIST_MAX)
+    {
+        // parse
+        std::unordered_map<int, int> qubits;
+        for (std::string& word : words)
+        {
+            std::string tmp;
+            std::stringstream word_ss(word);
+            getline(word_ss, tmp, '[');
+            getline(word_ss, tmp, ']');
+            
+            char *p;
+            int index = strtol(tmp.c_str(), &p, 10);
+            if (*p != 0 || tmp.length() == 0 || *p == tmp[0])
+            {
+                std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+                std::cerr << "Syntax \'" << word << "\' is not specifying a qubit. The line is ignored ..." << std::endl;
+                return 1;
+            }       
+            if (qubits.find(index) != qubits.end())
+            {
+                std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+                std::cerr << "Qubit \'" << index << "\' is doubly defined. The line is ignored ..." << std::endl;
+                return 1;
+            }
+            qubits[index] = qubits.size();
+        }          
+        if (qubits.size() == 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "No qubits are specified. The line is ignored ..." << std::endl;
+            return 1;
+        }
+                
+        // backup and reorder
+        double oneroot2 = 1 / sqrt(2);
+        double H_factor = pow(oneroot2, k%2);
+        int nAnci_oneInt = ceil(log(r) / log(2)), nAnci_fourInt = ceil(log(w) / log(2)), nAnci = nAnci_oneInt + nAnci_fourInt, 
+            nnAnci_fourInt = n + nAnci_fourInt, nVar = n + nAnci;
+        
+        int *permutation = new int[nVar];
+        int indCount1 = 0;
+        int indCount0 = qubits.size();  // number of measured qubits
+        for (int i = 0; i < n; i++)
+        {
+            int index = Cudd_ReadInvPerm(manager, i);
+            if (qubits.find(index) != qubits.end())
+            {
+                permutation[indCount1] = index;
+                indCount1++;
+            }
+            else
+            {
+                permutation[indCount0] = index;
+                indCount0++;
+            }
+        }
+        for (int i = n; i < nVar; i++)
+            permutation[i] = Cudd_ReadInvPerm(manager, i);
+        int dum = Cudd_ShuffleHeap(manager, permutation);
+        Node_Table.clear();    // need to re-calculate
+        nodecount();
+        
+        // iterate
+        int *assign = new int[qubits.size()];
+        unsigned long long nEntries = pow(2, qubits.size());      // should timeout before overflow occurs in "nEntries"
+        for (int i = 0; i < qubits.size(); ++i)                   // initialize assignment
+            assign[i] = 0;
+    
+        std::map<std::string, long double> probs;
+        for (unsigned long long i = 0; i < nEntries; i++)         // compute every entry
+        {
+            std::string real_assign(qubits.size(), '2');
+            DdNode* root = bigBDD;
+            Cudd_Ref(root);
+            
+            DdNode* prev = bigBDD;
+            int prev_decision = 0;
+            
+            int current_position = Cudd_ReadPerm(manager, Cudd_NodeReadIndex(root));
+            for (int i = 0; i < qubits.size(); ++i)
+            {
+                real_assign[ qubits[Cudd_ReadInvPerm(manager, i)] ] = assign[i] + '0';
+                if ( current_position <= i )
+                {
+                    DdNode* child = Cudd_Child(manager, root, assign[i]);
+                    Cudd_Ref(child);
+                    Cudd_RecursiveDeref(manager, prev);
+                    prev = root;
+                    prev_decision = assign[i];
+                    root = child;
+                    current_position = Cudd_ReadPerm(manager, Cudd_NodeReadIndex(root));
+                }
+            }  
+        
+            int prev_position = Cudd_ReadPerm(manager, Cudd_NodeReadIndex(prev));
+            long double value = measure_probability(prev, k/2, nVar, nAnci_fourInt, prev_decision) * H_factor * H_factor / pow(2, qubits.size() - 1 - prev_position);             
+            probs[real_assign] = value;
+             
+            Cudd_RecursiveDeref(manager, root);
+            Cudd_RecursiveDeref(manager, prev);
+            full_adder_plus_1(n, assign);
+        }
+        delete[] assign;
+        
+        // store the value
+        std::string result = "";
+        if (!probs.empty()) {
+            // 找出最大機率
+            auto max_item = std::max_element(
+                probs.begin(), probs.end(),
+                [](const auto& a, const auto& b) { return a.second < b.second; }
+            );
+            std::ostringstream oss;
+            oss << max_item->second;
+            result = max_item->first + ": " + oss.str();
+        }
+        std::string line = op_name;
+        for (std::string& word : words)
+            line = line + " " + word;
+        property.push_back(std::make_tuple(line, result));
+
+        return 0;
+    }
     else if (op_name == KW_AMP)                                      // ============================ KW_AMP
     {
         // parse
@@ -904,6 +1028,360 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         Node_Table.clear();    // need to re-calculate
         return 0;
     } 
+    else if (op_name == KW_TOP_K)
+    {
+        int k_value;
+        if (words.size() != 1 || (k_value = stoi(words[0])) <= 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "Invalid k value for " << KW_TOP_K << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        //sort the |amplitudes|
+        std::sort(amplitude_array.begin(), amplitude_array.end(), [](const std::tuple<std::complex<long double>, std::string>& a, const std::tuple<std::complex<long double>, std::string>& b) {
+            return std::norm(std::get<0>(a)) > std::norm(std::get<0>(b));
+        });
+        // get the top k results
+        std::string top_k_result = "The top " + std::to_string(k_value) + " probabilities are: \n";
+        for (int i = 0; i < k_value && i < amplitude_array.size(); ++i)
+        {
+            std::ostringstream oss;
+            top_k_result += '\t' + std::get<1>(amplitude_array[i]) + ": ";
+            long double norm = std::norm(std::get<0>(amplitude_array[i]));
+            oss << norm;
+            top_k_result += oss.str();
+            // if (i < k_value - 1 && i < amplitude_array.size() - 1)
+            top_k_result += "\n";
+        }
+
+        std::string line = op_name + " " + words[0];
+        property.push_back(std::make_tuple(line, top_k_result));
+        return 0;
+    }
+    else if (op_name == KW_MAXP)
+    {
+        if(words.size() != 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "No arguments expected for " << KW_MAXP << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        //sort the |amplitudes|
+        std::sort(amplitude_array.begin(), amplitude_array.end(), [](const std::tuple<std::complex<long double>, std::string>& a, const std::tuple<std::complex<long double>, std::string>& b) {
+            return std::norm(std::get<0>(a)) > std::norm(std::get<0>(b));
+        }); 
+        // get the top k results
+        std::string top_k_result = "The maximum probabilities are: \n";
+        for (int i = 0; i < 1 && i < amplitude_array.size(); ++i)
+        {
+            std::ostringstream oss;
+            top_k_result += '\t' + std::get<1>(amplitude_array[i]) + ": ";
+            long double norm = std::norm(std::get<0>(amplitude_array[i]));
+            long double prob = norm;
+            oss << prob;
+            top_k_result += oss.str();
+            // if (i < k_value - 1 && i < amplitude_array.size() - 1)
+            top_k_result += "\n";
+        }
+
+        std::string line = op_name;
+        property.push_back(std::make_tuple(line, top_k_result));
+        return 0;
+    }
+    else if (op_name == KW_BOTTOM_K)
+    {
+        int k_value;
+        if (words.size() != 1 || (k_value = stoi(words[0])) <= 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "Invalid k value for " << KW_TOP_K << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        //sort the |amplitudes|
+        std::sort(amplitude_array.begin(), amplitude_array.end(), [](const std::tuple<std::complex<long double>, std::string>& a, const std::tuple<std::complex<long double>, std::string>& b) {
+            return std::norm(std::get<0>(a)) < std::norm(std::get<0>(b));
+        });
+        // get the top k results
+        std::string top_k_result = "The bottom " + std::to_string(k_value) + " non-zero probabilities are: \n";
+        int count = 0;
+        // if the amplitudes are all zero, we return an empty string
+        for (int i = 0; count < k_value && i < amplitude_array.size(); ++i)
+        {
+            long double norm = std::norm(std::get<0>(amplitude_array[i]));
+            long double prob = norm;
+            if (norm == 0)
+            {
+                continue; // skip zero amplitudes
+            }
+            count++;
+            std::ostringstream oss;
+            top_k_result += '\t' + std::get<1>(amplitude_array[i]) + ": ";
+            oss << prob;
+            top_k_result += oss.str();
+            // if (i < k_value - 1 && i < amplitude_array.size() - 1)
+            top_k_result += "\n";
+        }
+
+        std::string line = op_name + " " + words[0];
+        property.push_back(std::make_tuple(line, top_k_result));
+        return 0;
+    }
+    else if (op_name == KW_MINP)
+    {
+        int k_value;
+        if (words.size() != 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "No arguments expected for " << KW_MINP << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        //sort the |amplitudes|
+        std::sort(amplitude_array.begin(), amplitude_array.end(), [](const std::tuple<std::complex<long double>, std::string>& a, const std::tuple<std::complex<long double>, std::string>& b) {
+            return std::norm(std::get<0>(a)) < std::norm(std::get<0>(b));
+        });
+        // get the top k results
+        std::string top_k_result = "The minimum non-zero probabilities are: \n";
+        int count = 0;
+        // if the amplitudes are all zero, we return an empty string
+        for (int i = 0; count < 1 && i < amplitude_array.size(); ++i)
+        {
+            long double norm = std::norm(std::get<0>(amplitude_array[i]));
+            long double prob = norm;
+            if (norm == 0)
+            {
+                continue; // skip zero amplitudes
+            }
+            count++;
+            std::ostringstream oss;
+            top_k_result += '\t' + std::get<1>(amplitude_array[i]) + ": ";
+            oss << prob;
+            top_k_result += oss.str();
+            // if (i < k_value - 1 && i < amplitude_array.size() - 1)
+            top_k_result += "\n";
+        }
+
+        std::string line = op_name;
+        property.push_back(std::make_tuple(line, top_k_result));
+        return 0;
+    }
+    else if (op_name == KW_MEDIANP)
+    {
+        if (words.size() != 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "No arguments expected for " << KW_MEDIANP << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        //sort the |amplitudes|
+        std::sort(amplitude_array.begin(), amplitude_array.end(), [](const std::tuple<std::complex<long double>, std::string>& a, const std::tuple<std::complex<long double>, std::string>& b) {
+            return std::norm(std::get<0>(a)) > std::norm(std::get<0>(b));
+        });
+        // get the results
+        std::string result = "The median probabilities is: \n";
+        long double median_prob = 0;
+        if (amplitude_array.size() % 2 == 0)
+        {
+            long double norm1 = std::norm(std::get<0>(amplitude_array[amplitude_array.size() / 2 - 1]));
+            long double norm2 = std::norm(std::get<0>(amplitude_array[amplitude_array.size() / 2]));
+            median_prob = (norm1 + norm2) / 2;
+            result += '\t' + std::get<1>(amplitude_array[amplitude_array.size() / 2 - 1]) + " and " + std::get<1>(amplitude_array[amplitude_array.size() / 2]) + ": ";
+            std::ostringstream oss;
+            oss << median_prob;
+            result += oss.str();
+            result += "\n";
+        }
+        else
+        {
+            long double norm = std::norm(std::get<0>(amplitude_array[amplitude_array.size() / 2]));
+            median_prob = norm;
+            result += '\t' + std::get<1>(amplitude_array[amplitude_array.size() / 2]) + ": ";
+            std::ostringstream oss;
+            oss << median_prob;
+            result += oss.str();
+            result += "\n";
+        }
+        std::string line = op_name;
+        property.push_back(std::make_tuple(line, result));
+        return 0;
+    }
+    else if (op_name == KW_PRANGE)
+    {
+        long double min_prob, max_prob;
+        if (words.size() != 2 || 
+            (min_prob = stold(words[0])) < 0 || (max_prob = stold(words[1])) < 0 || min_prob > max_prob)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "Invalid probability range for " << KW_PRANGE << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        //sort the |amplitudes|
+        std::sort(amplitude_array.begin(), amplitude_array.end(), [](const std::tuple<std::complex<long double>, std::string>& a, const std::tuple<std::complex<long double>, std::string>& b) {
+            return std::norm(std::get<0>(a)) > std::norm(std::get<0>(b));
+        });
+        // get the results
+        std::string result = "The probabilities in the range [" + std::to_string(min_prob) + ", " + std::to_string(max_prob) + "] are: \n";
+        // if the amplitudes are all zero, we return an empty string
+        for (int i = 0; i < amplitude_array.size(); ++i)
+        {
+            long double norm = std::norm(std::get<0>(amplitude_array[i]));
+            long double prob = norm;
+            if( prob < min_prob || prob > max_prob)
+            {
+                continue; // skip probabilities out of range
+            }
+            std::ostringstream oss;
+            result += '\t' + std::get<1>(amplitude_array[i]) + ": ";
+            oss << prob;
+            result += oss.str();
+            // if (i < k_value - 1 && i < amplitude_array.size() - 1)
+            result += "\n";
+        }
+
+        std::string line = op_name + " " + words[0] + " " + words[1];
+        property.push_back(std::make_tuple(line, result));
+        return 0;
+    }
+    else if (op_name == KW_PHIST)
+    {
+        if (words.size() != 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "No arguments expected for " << KW_PHIST << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        // get the hitogram of the probabilities
+        std::string hist_result = "The log-log histogram of probabilities is: \n";
+        std::vector<int> histogram(10, 0); // 10 bins for probabilities
+        // count the probabilities in each bins according to the log norm distribution
+        for (const auto& item : amplitude_array)
+        {
+            long double norm = std::norm(std::get<0>(item));
+            long double prob = norm;
+            int bin_index;
+            if (prob <= 0.0L) {
+                bin_index = 9; // 將0機率歸到最後一個bin
+            } else {
+                bin_index = static_cast<int>(-log10(prob));
+                if (bin_index < 0) bin_index = 0;
+                if (bin_index >= 10) bin_index = 9;
+            }
+            histogram[bin_index]++;
+        }
+        std::vector<int> loghistogram(histogram.size(), 0);
+        for (int i = 0; i < histogram.size(); ++i)
+        {
+            loghistogram[i] = std::ceil(log2(histogram[i] + 1)); // log scale the counts
+        }
+        // for (int i = 0; i < histogram.size(); ++i)
+        // {
+        //     hist_result += "\t(1e-" + std::to_string(i+1) + ", 1e-" + std::to_string(i) + "]: " + std::to_string(histogram[i]) + "\n";
+        // }
+        // Draw ASCII bar chart
+        for (int i = 0; i < loghistogram.size(); ++i)
+        {
+            // Bin label
+            std::string bin_label;
+            if ( i<loghistogram.size() - 1 )
+                bin_label = "(1e-" + std::to_string(i+1) + ", 1e-" + std::to_string(i) + "]";
+            else
+                // Last bin label (capping at 0)
+                bin_label = "[0   , 1e-" + std::to_string(i) + "]";
+            int bar_len = loghistogram[i];
+            std::string bar(bar_len, '#');
+            hist_result += "\t" + bin_label + " | " + bar + " (" + std::to_string(histogram[i]) + " states)\n";
+        }
+        std::string line = op_name;
+        property.push_back(std::make_tuple(line, hist_result));
+        return 0;
+    }
+    else if (op_name == KW_ENTROPY)
+    {
+        if (words.size() != 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "No arguments expected for " << KW_ENTROPY << ". The line is ignored ..." << std::endl;
+            return 1;
+        }
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        // get the results
+        std::string result = "The entropy of the system is: \n";
+        long double entropy = 0.0;
+        for (int i = 0; i < amplitude_array.size(); ++i)
+        {
+            long double norm = std::norm(std::get<0>(amplitude_array[i]));
+            long double prob = norm;
+            if (prob > 0)
+            {
+                entropy = -prob * log2(prob);
+            }
+        }
+        result += "\t" + std::to_string(entropy) + "\n";
+        std::string line = op_name;
+        property.push_back(std::make_tuple(line, result));
+        return 0;
+    }
+    else if (op_name == KW_MOST_COMMON_BITPATTERN)
+    {
+        int k_value;
+        if (words.size() != 1 || (k_value = stoi(words[0])) <= 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "Invalid k value for most_common_bitpattern. The line is ignored ..." << std::endl;
+            return 1;
+        }
+
+        // 1. 取得前 k 高機率的 basis
+        std::vector<std::tuple<std::complex<long double>, std::string>> amplitude_array = amplitudevector;
+        std::sort(amplitude_array.begin(), amplitude_array.end(), [](const auto& a, const auto& b) {
+            return std::norm(std::get<0>(a)) > std::norm(std::get<0>(b));
+        });
+
+        // 2. 統計每個 qubit 的 0/1 次數
+        std::vector<int> count0(n, 0), count1(n, 0);
+        int actual_k = std::min(k_value, (int)amplitude_array.size());
+        for (int i = 0; i < actual_k; ++i)
+        {
+            const std::string& bits = std::get<1>(amplitude_array[i]);
+            for (int j = 0; j < n; ++j)
+            {
+                if (bits[j] == '0') count0[j]++;
+                else if (bits[j] == '1') count1[j]++;
+            }
+        }
+
+        // 3. 組合 bitpattern
+        std::string pattern = "";
+        for (int j = 0; j < n; ++j)
+        {
+            if (count0[j] == count1[j] && count0[j] != 0)
+                pattern += "x";
+            else if (count0[j] > count1[j])
+                pattern += "0";
+            else if (count1[j] > count0[j])
+                pattern += "1";
+            else
+                pattern += "x"; // 若都為 0，視為不確定
+        }
+
+        // 4. 輸出
+        std::string result = "Most common bitpattern in top " + std::to_string(actual_k) + ":\n\t" + pattern;
+        std::string line = op_name + " " + words[0];
+        property.push_back(std::make_tuple(line, result));
+        return 0;
+    }
     else if (keyword_truth.find(op_name) != keyword_truth.end())     // ============================ other supported
     {
         DdNode* function = get_property(op_name, words);
@@ -1370,5 +1848,183 @@ void Simulator::getStatevector()
     }
     statevector += "]";
 
+    delete[] assign;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [get probbility amplitude of a computational basis]
+
+  Description []
+               
+  SideEffects []
+ 
+  SeeAlso     []
+
+***********************************************************************/
+std::complex<long double> Simulator::get_amplitude(int *assign)
+{
+    mpf_t re, im, sin_val, cos_val, tmp_float;
+    mpf_init(re);
+    mpf_init(im);
+    mpf_init(sin_val);
+    mpf_init(cos_val);
+    mpf_init(tmp_float);    
+    
+    mpz_t int_value;
+    mpz_init(int_value);    
+    mpf_t int_value_as_float;
+    mpf_init(int_value_as_float);
+    
+    mpf_t one_over_sqrt_2;        
+    mpf_init(one_over_sqrt_2);
+    mpf_sqrt_ui(one_over_sqrt_2, 2);
+    mpf_div_ui(one_over_sqrt_2, one_over_sqrt_2, 2);
+    // sqrt_val = 1/sqrt(2)
+    
+    mpz_t tmp_int;
+    mpz_init(tmp_int);
+    mpz_t two;
+    mpz_init(two);
+    mpz_set_str(two, "2", 10);
+    mpf_t H_factor;
+    mpf_init(H_factor);
+    mpz_pow_ui(tmp_int, two, k / 2);
+    mpf_set_z(H_factor, tmp_int);    
+    if (k % 2 == 1)
+        mpf_div(H_factor, H_factor, one_over_sqrt_2);
+    
+    DdNode *tmp;
+    
+    for (int j = 0; j < w; j++) // compute every complex value
+    {
+        std::string bitstring = "";
+        
+        mpz_init(int_value);
+        for (int h = 0; h < r; h++) // compute every integer
+        {
+            tmp = Cudd_Eval(manager, All_Bdd[j][h], assign);
+            Cudd_Ref(tmp);
+            int oneEntry = !(Cudd_IsComplement(tmp));
+            Cudd_RecursiveDeref(manager, tmp);
+            if (oneEntry)
+            {
+                bitstring += "1";
+            }
+            else
+            {
+                bitstring += "0";
+            }
+            
+        }
+        std::reverse(bitstring.begin(), bitstring.end());
+        bool isNeg = (bitstring[0]=='1');
+        if (isNeg)
+        {
+            std::string inv_str = "1";
+            for (int digitIndex = 0; digitIndex < r; digitIndex++)
+            {
+                inv_str += "0";
+            }
+            mpz_t raw_data;
+            mpz_init_set_str(raw_data, bitstring.c_str(), 2);
+            mpz_t inverter;
+            mpz_init_set_str(inverter, inv_str.c_str(), 2);
+            
+            mpz_sub(int_value, raw_data, inverter);
+        }
+        else
+        {
+            mpz_set_str(int_value, bitstring.c_str(), 2);
+        }
+        
+        switch (j)
+        {
+        case 3:
+            mpf_set_d(cos_val, 1);
+            mpf_set_d(sin_val, 0);
+            break;
+        case 2:
+            mpf_set(cos_val, one_over_sqrt_2);
+            mpf_set(sin_val, one_over_sqrt_2);
+            break;
+        case 1:
+            mpf_set_d(cos_val, 0);
+            mpf_set_d(sin_val, 1);
+            break;
+        case 0:
+            mpf_neg(cos_val, one_over_sqrt_2); // -sqrt(2)/2
+            mpf_set(sin_val, one_over_sqrt_2);
+            break;
+        default:
+            std::cerr << "Warning: Unknown index (" << j << ")\n";
+            break;
+        }
+                        
+        mpf_set_z(int_value_as_float, int_value);
+        
+        mpf_mul(tmp_float, int_value_as_float, cos_val);
+        mpf_add(re, re, tmp_float);
+        mpf_mul(tmp_float, int_value_as_float, sin_val);
+        mpf_add(im, im, tmp_float);
+        // translate to re and im
+    }
+    
+    mpf_div(tmp_float, re, H_factor);            
+    long double final_re = mpf_get_d(tmp_float) * normalize_factor;
+    mpf_div(tmp_float, im, H_factor);
+    long double final_im = mpf_get_d(tmp_float) * normalize_factor;
+    
+    return std::complex<long double>(final_re, final_im);
+}
+
+/**Function*************************************************************
+
+  Synopsis    [get amplitude vector based on BDDs]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+***********************************************************************/
+
+void Simulator::getAmplitude()
+{
+    int *assign = new int[n];
+    unsigned long long nEntries = pow(2, n);      // should timeout before overflow occurs in "nEntries"    
+    for (int i = 0; i < n; i++)                   // initialize assignment
+        assign[i] = 0;
+    // initialize amplitude
+    amplitudevector.clear();
+    amplitudevector.resize(nEntries);
+
+    for (unsigned long long i = 0; i < nEntries; i++) // compute every entry
+    {
+        bool isZero = 0;
+        // for (int j = 0; j < n; j++)
+        // {
+        //     if (!measured_qubits_to_clbits[j].empty())
+        //         if (assign[j] != stoi(measure_outcome.substr(n - 1 - j, 1)))
+        //         {
+        //             isZero = 1;
+        //             break;
+        //         }
+        // }
+        
+        std::complex<long double> amplitude;
+        if (isZero)
+            amplitude = 0;
+        else
+            amplitude = get_amplitude(assign);
+
+        std::string assign_str = "";
+        for (int j = 0; j < n; j++)
+        {
+            assign_str += std::to_string(assign[j]);
+        }
+        amplitudevector[i] = make_tuple(amplitude, assign_str);
+        full_adder_plus_1(n, assign);
+    }
     delete[] assign;
 }

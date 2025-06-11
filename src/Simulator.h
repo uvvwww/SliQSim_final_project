@@ -18,6 +18,7 @@
 #include <cmath>
 #include <vector>
 #include <gmpxx.h>
+#include <complex>
 #include "../cudd/cudd/cudd.h"
 #include "../cudd/cudd/cuddInt.h"
 #include "../cudd/util/util.h"
@@ -41,7 +42,17 @@
 #define KW_OOF        "outof"
 #define KW_GEQ        "geq"
 #define KW_LEQ        "leq"
-
+// extended keywords
+#define KW_TOP_K      "top_k"
+#define KW_MAXP       "maxp"
+#define KW_BOTTOM_K   "bottom_k"
+#define KW_MINP       "minp"
+#define KW_MEDIANP    "medianp"
+#define KW_PRANGE     "prange"
+#define KW_PHIST      "phist"
+#define KW_ENTROPY    "entropy"
+#define KW_MOST_COMMON_BITPATTERN "most_common_bitpattern"
+#define KW_DIST_MAX   "dist_max"
 
 #define PI 3.14159265358979323846264338327950288419716939937510582097494459230781640628620899
 
@@ -85,6 +96,7 @@ public:
     void measurement_obs(std::string obsfile);
     void measurement();
     void getStatevector();
+    void getAmplitude();
 
     /* simulation */
     void init_simulator(int n);
@@ -121,6 +133,7 @@ private:
     std::unordered_map<DdNode *, double> Node_Table; // key: node, value: summed prob
     std::unordered_map<std::string, int> state_count;
     std::string statevector;
+    std::vector<std::tuple<std::complex<long double>, std::string>> amplitudevector; // used in getAmplitude
     std::vector<std::tuple<std::string, std::string>> property;
     std::string run_output; // output string for Qiskit
     std::unordered_map<std::string, DdNode*> defined_var;
@@ -144,6 +157,7 @@ private:
     
     double get_prob(DdNode* function);
     std::string get_amplitude_string(int *assign);
+    std::complex<long double> get_amplitude(int *assign);
     double measure_probability(DdNode *node, int kd2, int nVar, int nAnci_fourInt, int edge);
     void measure_one(int position, int kd2, double H_factor, int nVar, int nAnci_fourInt, std::string *outcome);
 
