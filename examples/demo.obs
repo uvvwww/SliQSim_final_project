@@ -19,8 +19,9 @@ endweightedsum
 between 0.5 0.8;
 hwgt q[0] q[2] q[1] 2;
 
-amp 1001001010;
+amp 100;
 dist q[0] q[1] q[2];
+dist_max q[0] q[1] q[2];
 
 top_k 3;
 maxp;
@@ -30,4 +31,4 @@ prange 0.1 1;
 phist;
 entropy;
 medianp;
-most_common_bitpattern 10;
+most_common_bitpattern 8;

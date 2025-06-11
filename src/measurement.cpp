@@ -694,6 +694,130 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         property.push_back(std::make_tuple(line, result));
         return 0;
     }
+    else if (op_name == KW_DIST_MAX)
+    {
+        // parse
+        std::unordered_map<int, int> qubits;
+        for (std::string& word : words)
+        {
+            std::string tmp;
+            std::stringstream word_ss(word);
+            getline(word_ss, tmp, '[');
+            getline(word_ss, tmp, ']');
+            
+            char *p;
+            int index = strtol(tmp.c_str(), &p, 10);
+            if (*p != 0 || tmp.length() == 0 || *p == tmp[0])
+            {
+                std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+                std::cerr << "Syntax \'" << word << "\' is not specifying a qubit. The line is ignored ..." << std::endl;
+                return 1;
+            }       
+            if (qubits.find(index) != qubits.end())
+            {
+                std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+                std::cerr << "Qubit \'" << index << "\' is doubly defined. The line is ignored ..." << std::endl;
+                return 1;
+            }
+            qubits[index] = qubits.size();
+        }          
+        if (qubits.size() == 0)
+        {
+            std::cerr << std::endl << "[warning]: In line \"" << raw_line << "\":" << std::endl;
+            std::cerr << "No qubits are specified. The line is ignored ..." << std::endl;
+            return 1;
+        }
+                
+        // backup and reorder
+        double oneroot2 = 1 / sqrt(2);
+        double H_factor = pow(oneroot2, k%2);
+        int nAnci_oneInt = ceil(log(r) / log(2)), nAnci_fourInt = ceil(log(w) / log(2)), nAnci = nAnci_oneInt + nAnci_fourInt, 
+            nnAnci_fourInt = n + nAnci_fourInt, nVar = n + nAnci;
+        
+        int *permutation = new int[nVar];
+        int indCount1 = 0;
+        int indCount0 = qubits.size();  // number of measured qubits
+        for (int i = 0; i < n; i++)
+        {
+            int index = Cudd_ReadInvPerm(manager, i);
+            if (qubits.find(index) != qubits.end())
+            {
+                permutation[indCount1] = index;
+                indCount1++;
+            }
+            else
+            {
+                permutation[indCount0] = index;
+                indCount0++;
+            }
+        }
+        for (int i = n; i < nVar; i++)
+            permutation[i] = Cudd_ReadInvPerm(manager, i);
+        int dum = Cudd_ShuffleHeap(manager, permutation);
+        Node_Table.clear();    // need to re-calculate
+        nodecount();
+        
+        // iterate
+        int *assign = new int[qubits.size()];
+        unsigned long long nEntries = pow(2, qubits.size());      // should timeout before overflow occurs in "nEntries"
+        for (int i = 0; i < qubits.size(); ++i)                   // initialize assignment
+            assign[i] = 0;
+    
+        std::map<std::string, long double> probs;
+        for (unsigned long long i = 0; i < nEntries; i++)         // compute every entry
+        {
+            std::string real_assign(qubits.size(), '2');
+            DdNode* root = bigBDD;
+            Cudd_Ref(root);
+            
+            DdNode* prev = bigBDD;
+            int prev_decision = 0;
+            
+            int current_position = Cudd_ReadPerm(manager, Cudd_NodeReadIndex(root));
+            for (int i = 0; i < qubits.size(); ++i)
+            {
+                real_assign[ qubits[Cudd_ReadInvPerm(manager, i)] ] = assign[i] + '0';
+                if ( current_position <= i )
+                {
+                    DdNode* child = Cudd_Child(manager, root, assign[i]);
+                    Cudd_Ref(child);
+                    Cudd_RecursiveDeref(manager, prev);
+                    prev = root;
+                    prev_decision = assign[i];
+                    root = child;
+                    current_position = Cudd_ReadPerm(manager, Cudd_NodeReadIndex(root));
+                }
+            }  
+        
+            int prev_position = Cudd_ReadPerm(manager, Cudd_NodeReadIndex(prev));
+            long double value = measure_probability(prev, k/2, nVar, nAnci_fourInt, prev_decision) * H_factor * H_factor / pow(2, qubits.size() - 1 - prev_position);             
+            probs[real_assign] = value;
+             
+            Cudd_RecursiveDeref(manager, root);
+            Cudd_RecursiveDeref(manager, prev);
+            full_adder_plus_1(n, assign);
+        }
+        delete[] assign;
+        
+        // store the value
+        std::string result = "";
+        if (!probs.empty()) {
+            // 找出最大機率
+            auto max_item = std::max_element(
+                probs.begin(), probs.end(),
+                [](const auto& a, const auto& b) { return a.second < b.second; }
+            );
+            std::ostringstream oss;
+            oss << max_item->second;
+            result = max_item->first + ": " + oss.str();
+        }
+        std::string line = op_name;
+        for (std::string& word : words)
+            line = line + " " + word;
+        property.push_back(std::make_tuple(line, result));
+
+        return 0;
+    }
     else if (op_name == KW_AMP)                                      // ============================ KW_AMP
     {
         // parse
@@ -926,8 +1050,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
             std::ostringstream oss;
             top_k_result += '\t' + std::get<1>(amplitude_array[i]) + ": ";
             long double norm = std::norm(std::get<0>(amplitude_array[i]));
-            long double prob = norm*norm;
-            oss << prob;
+            oss << norm;
             top_k_result += oss.str();
             // if (i < k_value - 1 && i < amplitude_array.size() - 1)
             top_k_result += "\n";
@@ -957,7 +1080,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
             std::ostringstream oss;
             top_k_result += '\t' + std::get<1>(amplitude_array[i]) + ": ";
             long double norm = std::norm(std::get<0>(amplitude_array[i]));
-            long double prob = norm*norm;
+            long double prob = norm;
             oss << prob;
             top_k_result += oss.str();
             // if (i < k_value - 1 && i < amplitude_array.size() - 1)
@@ -990,7 +1113,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         for (int i = 0; count < k_value && i < amplitude_array.size(); ++i)
         {
             long double norm = std::norm(std::get<0>(amplitude_array[i]));
-            long double prob = norm*norm;
+            long double prob = norm;
             if (norm == 0)
             {
                 continue; // skip zero amplitudes
@@ -1030,7 +1153,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         for (int i = 0; count < 1 && i < amplitude_array.size(); ++i)
         {
             long double norm = std::norm(std::get<0>(amplitude_array[i]));
-            long double prob = norm*norm;
+            long double prob = norm;
             if (norm == 0)
             {
                 continue; // skip zero amplitudes
@@ -1069,7 +1192,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         {
             long double norm1 = std::norm(std::get<0>(amplitude_array[amplitude_array.size() / 2 - 1]));
             long double norm2 = std::norm(std::get<0>(amplitude_array[amplitude_array.size() / 2]));
-            median_prob = (norm1*norm1 + norm2*norm2) / 2;
+            median_prob = (norm1 + norm2) / 2;
             result += '\t' + std::get<1>(amplitude_array[amplitude_array.size() / 2 - 1]) + " and " + std::get<1>(amplitude_array[amplitude_array.size() / 2]) + ": ";
             std::ostringstream oss;
             oss << median_prob;
@@ -1079,7 +1202,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         else
         {
             long double norm = std::norm(std::get<0>(amplitude_array[amplitude_array.size() / 2]));
-            median_prob = norm * norm;
+            median_prob = norm;
             result += '\t' + std::get<1>(amplitude_array[amplitude_array.size() / 2]) + ": ";
             std::ostringstream oss;
             oss << median_prob;
@@ -1112,7 +1235,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         for (int i = 0; i < amplitude_array.size(); ++i)
         {
             long double norm = std::norm(std::get<0>(amplitude_array[i]));
-            long double prob = norm*norm;
+            long double prob = norm;
             if( prob < min_prob || prob > max_prob)
             {
                 continue; // skip probabilities out of range
@@ -1146,7 +1269,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         for (const auto& item : amplitude_array)
         {
             long double norm = std::norm(std::get<0>(item));
-            long double prob = norm * norm;
+            long double prob = norm;
             int bin_index;
             if (prob <= 0.0L) {
                 bin_index = 9; // 將0機率歸到最後一個bin
@@ -1199,7 +1322,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         for (int i = 0; i < amplitude_array.size(); ++i)
         {
             long double norm = std::norm(std::get<0>(amplitude_array[i]));
-            long double prob = norm*norm;
+            long double prob = norm;
             if (prob > 0)
             {
                 entropy = -prob * log2(prob);
@@ -1210,7 +1333,7 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         property.push_back(std::make_tuple(line, result));
         return 0;
     }
-    else if (op_name == "most_common_bitpattern")
+    else if (op_name == KW_MOST_COMMON_BITPATTERN)
     {
         int k_value;
         if (words.size() != 1 || (k_value = stoi(words[0])) <= 0)
