@@ -863,17 +863,125 @@ void Simulator::MAJControlledX(int c1, int c2, int c3, int targ)
     assert((c3 >= 0) & (c3 < n));
     assert((targ >= 0) & (targ < n));
 
-    std::vector<int> cont(2);
-    std::vector<int> ncont(0);
-    cont[0] = c1;
-    cont[1] = c2;
-    Toffoli(targ, cont, ncont);
-    cont[0] = c1;
-    cont[1] = c3;
-    Toffoli(targ, cont, ncont);
-    cont[0] = c2;
-    cont[1] = c3;
-    Toffoli(targ, cont, ncont);
+    DdNode *term1, *maj, *tmp;
+    std::vector<DdNode *> term2(4), term3(4);
+
+    std::vector<DdNode *> g(4);
+    std::vector<std::vector<int> > swap = {
+        {1, 1, 1},
+        {1, 1, 0},
+        {1, 0, 1},
+        {0, 1, 1}
+    };
+
+    for (int i = 0; i < 4; i++) {
+        // g[i]
+        g[i] = Cudd_ReadOne(manager);
+        Cudd_Ref(g[i]);
+        for (int j = 0; j < 3; j++) {
+            if (swap[i][j] == 1) {
+                tmp = Cudd_bddAnd(manager, Cudd_bddIthVar(manager, c1 + j), g[i]);
+            } else {
+                tmp = Cudd_bddAnd(manager, Cudd_Not(Cudd_bddIthVar(manager, c1 + j)), g[i]);
+            }
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, g[i]);
+            g[i] = tmp;
+        }
+    }
+
+    // maj = c_1c_2 + c_1c_3 + c_2c_3
+    maj = Cudd_bddOr(manager, g[0], g[1]);
+    Cudd_Ref(maj);
+    tmp = Cudd_bddOr(manager, maj, g[2]);
+    Cudd_Ref(tmp);
+    Cudd_RecursiveDeref(manager, maj);
+    maj = tmp;
+    tmp = Cudd_bddOr(manager, maj, g[3]);
+    Cudd_Ref(tmp);
+    Cudd_RecursiveDeref(manager, maj);
+    maj = tmp;
+
+    for (int i = 0; i < w; i++) // F = All_Bdd[i][j]
+    {
+        for (int j = 0; j < r; j++)
+        {
+            //term1
+            term1 = Cudd_ReadOne(manager);
+            Cudd_Ref(term1);
+            tmp = Cudd_bddAnd(manager, All_Bdd[i][j], term1);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, term1);
+            term1 = tmp;
+            tmp = Cudd_bddAnd(manager, Cudd_Not(maj), term1);
+            Cudd_Ref(tmp);
+            Cudd_RecursiveDeref(manager, term1);
+            term1 = tmp;
+            
+            for (int k = 0; k < 4; k++) {
+                //term2
+                term2[k] = Cudd_Cofactor(manager, All_Bdd[i][j], Cudd_Not(Cudd_bddIthVar(manager, targ)));
+                Cudd_Ref(term2[k]);
+
+                tmp = Cudd_Cofactor(manager, term2[k], g[k]);
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term2[k]);
+                term2[k] = tmp;
+
+                tmp = Cudd_bddAnd(manager, term2[k], g[k]);
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term2[k]);
+                term2[k] = tmp;
+
+                tmp = Cudd_bddAnd(manager, term2[k], Cudd_bddIthVar(manager, targ));
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term2[k]);
+                term2[k] = tmp;
+
+                //term3
+                term3[k] = Cudd_Cofactor(manager, All_Bdd[i][j], Cudd_bddIthVar(manager, targ));
+                Cudd_Ref(term3[k]);
+
+                tmp = Cudd_Cofactor(manager, term3[k], g[k]);
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term3[k]);
+                term3[k] = tmp;
+
+                tmp = Cudd_bddAnd(manager, term3[k], g[k]);
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term3[k]);
+                term3[k] = tmp;
+
+                tmp = Cudd_bddAnd(manager, term3[k], Cudd_Not(Cudd_bddIthVar(manager, targ)));
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term3[k]);
+                term3[k] = tmp;
+            }
+
+            //OR
+            Cudd_RecursiveDeref(manager, All_Bdd[i][j]);
+            All_Bdd[i][j] = term1;
+            for (int k = 0; k < 4; k++)
+            {
+                tmp = Cudd_bddOr(manager, All_Bdd[i][j], term2[k]);
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term2[k]);
+                Cudd_RecursiveDeref(manager, All_Bdd[i][j]);
+                All_Bdd[i][j] = tmp;
+
+                tmp = Cudd_bddOr(manager, All_Bdd[i][j], term3[k]);
+                Cudd_Ref(tmp);
+                Cudd_RecursiveDeref(manager, term3[k]);
+                Cudd_RecursiveDeref(manager, All_Bdd[i][j]);
+                All_Bdd[i][j] = tmp;
+            }
+        }
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        Cudd_RecursiveDeref(manager, g[i]);
+    }
+    Cudd_RecursiveDeref(manager, maj);
 
     gatecount++;
     nodecount();
