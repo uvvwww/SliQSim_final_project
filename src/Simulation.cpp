@@ -221,6 +221,67 @@ void Simulator::sim_qasm_file(std::string qasm)
                     cont.clear();
                     ncont.clear();
                 }
+                else if (inStr == "cu1(pi/2)" || inStr == "cp(pi/2)")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    Controlled_Phase_shift(cont, targ, 2);
+                }
+                else if (inStr == "cu1(-pi/2)" || inStr == "cp(-pi/2)")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    Controlled_Phase_shift_dagger(cont, targ, 2);
+                }
+                else if (inStr == "cu1(pi/4)" || inStr == "cp(pi/4)" || inStr == "ct")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    Controlled_Phase_shift(cont, targ, 4);
+                }
+                else if (inStr == "cu1(-pi/4)" || inStr == "cp(-pi/4)")
+                {
+                    int cont, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    cont = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    Controlled_Phase_shift_dagger(cont, targ, 4);
+                }
+                else if (inStr == "maj")
+                {
+                    int c1, c2, c3, targ;
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    c1 = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    c2 = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    c3 = stoi(inStr);
+                    getline(inStr_ss, inStr, '[');
+                    getline(inStr_ss, inStr, ']');
+                    targ = stoi(inStr);
+                    MAJControlledX(c1, c2, c3, targ);
+                }
                 else
                 {
                     std::cerr << std::endl

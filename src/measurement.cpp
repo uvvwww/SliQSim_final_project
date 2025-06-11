@@ -1293,28 +1293,9 @@ std::string Simulator::get_amplitude_string(int *assign)
             mpz_set_str(int_value, bitstring.c_str(), 2);
         }
         
-        switch (j)
-        {
-        case 3:
-            mpf_set_d(cos_val, 1);
-            mpf_set_d(sin_val, 0);
-            break;
-        case 2:
-            mpf_set(cos_val, one_over_sqrt_2);
-            mpf_set(sin_val, one_over_sqrt_2);
-            break;
-        case 1:
-            mpf_set_d(cos_val, 0);
-            mpf_set_d(sin_val, 1);
-            break;
-        case 0:
-            mpf_neg(cos_val, one_over_sqrt_2); // -sqrt(2)/2
-            mpf_set(sin_val, one_over_sqrt_2);
-            break;
-        default:
-            std::cerr << "Warning: Unknown index (" << j << ")\n";
-            break;
-        }
+        double angle = (w - j - 1) * PI / w;
+        mpf_set_d(cos_val, cos(angle));
+        mpf_set_d(sin_val, sin(angle));
                         
         mpf_set_z(int_value_as_float, int_value);
         
