@@ -1147,8 +1147,14 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
         {
             long double norm = std::norm(std::get<0>(item));
             long double prob = norm * norm;
-            int bin_index = static_cast<int>(-log10(prob)); // scale to 10 bins
-            if (bin_index >= 10) bin_index = 9; // cap at the last bin
+            int bin_index;
+            if (prob <= 0.0L) {
+                bin_index = 9; // 將0機率歸到最後一個bin
+            } else {
+                bin_index = static_cast<int>(-log10(prob));
+                if (bin_index < 0) bin_index = 0;
+                if (bin_index >= 10) bin_index = 9;
+            }
             histogram[bin_index]++;
         }
         std::vector<int> loghistogram(histogram.size(), 0);
@@ -1174,7 +1180,6 @@ int Simulator::handle_property(std::string& raw_line, std::vector<std::string>& 
             std::string bar(bar_len, '#');
             hist_result += "\t" + bin_label + " | " + bar + " (" + std::to_string(histogram[i]) + " states)\n";
         }
-
         std::string line = op_name;
         property.push_back(std::make_tuple(line, hist_result));
         return 0;
